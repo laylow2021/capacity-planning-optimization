@@ -39,86 +39,54 @@ class EnhancedBAUOptimizer:
     def _get_default_activities(self) -> Dict:
         """Get default activity configuration."""
         return {
-            'model_monitoring': {
-                'priority': 'high',
-                'effort_per_cycle': 0.5,
-                'frequency': 12,
-                'theme': 'model_ops',
-                'original_start_month': 1
-            },
-            'model_validation': {
-                'priority': 'high',
-                'effort_per_cycle': 2.0,
-                'frequency': 4,
-                'theme': 'model_dev',
-                'original_start_month': 3
-            },
-            'cycle_development': {
-                'priority': 'high',
-                'effort_per_cycle': 4.0,
-                'frequency': 2,
-                'theme': 'model_dev',
-                'original_start_month': 1
-            },
-            'attestation_prep': {
+            'omr_jupiter': {
                 'priority': 'medium',
-                'effort_per_cycle': 1.5,
-                'frequency': 4,
-                'theme': 'compliance',
+                'effort_per_cycle': 0.75,
+                'frequency': 2,
+                'theme': 'model_ops',
                 'original_start_month': 2
             },
-            'attestation_execution': {
-                'priority': 'high',
-                'effort_per_cycle': 1.0,
-                'frequency': 4,
-                'theme': 'compliance',
-                'original_start_month': 3
-            },
-            'procedure_review': {
+            'omr_wildfire_damage': {
                 'priority': 'medium',
-                'effort_per_cycle': 1.2,
+                'effort_per_cycle': 0.75,
                 'frequency': 2,
-                'theme': 'governance',
-                'original_start_month': 6
+                'theme': 'model_ops',
+                'original_start_month': 2
             },
-            'compliance_check': {
-                'priority': 'high',
-                'effort_per_cycle': 0.8,
-                'frequency': 6,
-                'theme': 'compliance',
-                'original_start_month': 1
+            'omr_physical_risk_damage': {
+                'priority': 'medium',
+                'effort_per_cycle': 0.75,
+                'frequency': 2,
+                'theme': 'model_ops',
+                'original_start_month': 5
             },
-            'documentation_update': {
-                'priority': 'low',
-                'effort_per_cycle': 0.6,
-                'frequency': 3,
-                'theme': 'governance',
-                'original_start_month': 4
-            },
-            'training_review': {
-                'priority': 'low',
-                'effort_per_cycle': 1.0,
+            'omr_scorecard': {
+                'priority': 'medium',
+                'effort_per_cycle': 0.75,
                 'frequency': 1,
-                'theme': 'governance',
+                'theme': 'model_ops',
                 'original_start_month': 11
             },
-            'process_improvement': {
-                'priority': 'low',
-                'effort_per_cycle': 2.5,
+            'omr_first_street': {
+                'priority': 'medium',
+                'effort_per_cycle': 0.75,
                 'frequency': 1,
-                'theme': 'strategy',
-                'original_start_month': 8
+                'theme': 'model_ops',
+                'original_start_month': 7
+            },
+            'omr_ice': {
+                'priority': 'high',
+                'effort_per_cycle': 0.75,
+                'frequency': 1,
+                'theme': 'model_dev',
+                'original_start_month': 11
             }
         }
     
     def _get_default_resources(self) -> Dict:
         """Get default resource availability configuration."""
         return {
-            'model_dev': [2.5, 2.5, 3.0, 2.0, 2.0, 1.5, 1.5, 2.0, 2.5, 2.5, 2.0, 1.5],
-            'model_ops': [1.5, 1.5, 1.5, 1.5, 1.0, 1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 1.5],
-            'compliance': [2.0, 2.5, 3.0, 2.5, 2.0, 2.0, 1.5, 1.5, 2.0, 2.0, 2.5, 2.0],
-            'governance': [1.0, 1.0, 1.2, 1.2, 1.5, 1.5, 1.0, 1.0, 1.2, 1.2, 1.5, 1.0],
-            'strategy': [0.5, 0.5, 0.5, 0.8, 0.8, 1.0, 1.0, 1.2, 1.0, 0.8, 0.5, 0.5]
+            'model_ops': [1,1,1,1,1,1,0.5,0.5,1,1,1,0],
         }
     
     def _apply_config(self, config: Dict) -> None:
@@ -210,7 +178,7 @@ class EnhancedBAUOptimizer:
         for theme in current_gaps.index:
             for month in current_gaps.columns:
                 gap = current_gaps.loc[theme, month]
-                if gap < -0.1:  # Significant shortage
+                if gap < -0.25:  # Significant shortage
                     problem_areas.append((theme, month, gap))
         
         problem_areas.sort(key=lambda x: x[2])  # Sort by severity
