@@ -199,16 +199,26 @@ class EnhancedBAUOptimizer:
                 )
                 
                 if target_month is not None:
+                    # Get original dates before making the move
+                    orig_start, orig_end = self._get_activity_dates(activity, current_schedule)
+                    
                     # Make the move
                     optimized_schedule.loc[activity, problem_month] = 0
                     optimized_schedule.loc[activity, target_month] = effort
+                    
+                    # Get new dates after making the move
+                    new_start, new_end = self._get_activity_dates(activity, optimized_schedule)
                     
                     changes_made.append({
                         'activity': activity,
                         'from_month': problem_month,
                         'to_month': target_month,
                         'effort': effort,
-                        'reason': f'Resolved {theme} shortage in {self.month_names[problem_month-1]}'
+                        'reason': f'Resolved {theme} shortage in {self.month_names[problem_month-1]}',
+                        'original_start_month': orig_start,
+                        'original_end_month': orig_end,
+                        'new_start_month': new_start,
+                        'new_end_month': new_end
                     })
                     break
         
@@ -249,3 +259,22 @@ class EnhancedBAUOptimizer:
                     best_target = target_month
         
         return best_target
+    
+    def _get_activity_dates(self, activity: str, schedule: pd.DataFrame) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Get start and end months for an activity in a schedule.
+        
+        Args:
+            activity: Activity name
+            schedule: Schedule DataFrame
+            
+        Returns:
+            Tuple of (start_month, end_month) or (None, None) if activity not scheduled
+        """
+        activity_months = schedule.loc[activity]
+        active_months = [month for month in activity_months.index if activity_months[month] > 0]
+        
+        if not active_months:
+            return None, None
+        
+        return min(active_months), max(active_months)
