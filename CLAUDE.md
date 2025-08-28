@@ -44,7 +44,7 @@ optimized_schedule, changes = optimizer.optimize_schedule()
 
 # Create visualizations
 visualizer = BAUVisualizer(optimizer)
-fig = visualizer.create_comprehensive_dashboard()
+fig = visualizer.visualize_schedule(optimized_schedule, "Optimized Schedule Analysis")
 
 # Generate reports
 report_gen = ReportGenerator(optimizer)

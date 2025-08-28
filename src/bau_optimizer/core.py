@@ -162,7 +162,7 @@ class EnhancedBAUOptimizer:
     
     def optimize_schedule(self) -> Tuple[pd.DataFrame, List[Dict]]:
         """
-        Optimize schedule to minimize resource gaps.
+        Optimize schedule to minimize resource gaps while preserving fixed intervals.
         
         Returns:
             Tuple of (optimized_schedule, changes_made)
@@ -193,34 +193,64 @@ class EnhancedBAUOptimizer:
                 if optimized_schedule.loc[activity, problem_month] <= 0:
                     continue
                 
-                effort = optimized_schedule.loc[activity, problem_month]
-                target_month = self._find_best_target_month(
-                    theme, problem_month, effort, flexibility, optimized_schedule
-                )
+                # Get activity configuration
+                activity_config = self.activities[activity]
+                frequency = activity_config['frequency']
                 
-                if target_month is not None:
-                    # Get original dates before making the move
-                    orig_start, orig_end = self._get_activity_dates(activity, current_schedule)
+                if frequency > 1:
+                    # For activities with frequency > 1, move entire activity set
+                    success = self._move_activity_set(
+                        activity, optimized_schedule, flexibility, theme
+                    )
+                    if success:
+                        # Get original and new dates
+                        orig_start, orig_end = self._get_activity_dates(activity, current_schedule)
+                        new_start, new_end = self._get_activity_dates(activity, optimized_schedule)
+                        
+                        changes_made.append({
+                            'activity': activity,
+                            'from_month': orig_start,
+                            'to_month': new_start,
+                            'effort': activity_config['effort_per_cycle'],
+                            'reason': f'Moved entire activity set to resolve {theme} shortage',
+                            'original_start_month': orig_start,
+                            'original_end_month': orig_end,
+                            'new_start_month': new_start,
+                            'new_end_month': new_end,
+                            'frequency': frequency
+                        })
+                        break
+                else:
+                    # For single occurrence activities, use original logic
+                    effort = optimized_schedule.loc[activity, problem_month]
+                    target_month = self._find_best_target_month(
+                        theme, problem_month, effort, flexibility, optimized_schedule
+                    )
                     
-                    # Make the move
-                    optimized_schedule.loc[activity, problem_month] = 0
-                    optimized_schedule.loc[activity, target_month] = effort
-                    
-                    # Get new dates after making the move
-                    new_start, new_end = self._get_activity_dates(activity, optimized_schedule)
-                    
-                    changes_made.append({
-                        'activity': activity,
-                        'from_month': problem_month,
-                        'to_month': target_month,
-                        'effort': effort,
-                        'reason': f'Resolved {theme} shortage in {self.month_names[problem_month-1]}',
-                        'original_start_month': orig_start,
-                        'original_end_month': orig_end,
-                        'new_start_month': new_start,
-                        'new_end_month': new_end
-                    })
-                    break
+                    if target_month is not None:
+                        # Get original dates before making the move
+                        orig_start, orig_end = self._get_activity_dates(activity, current_schedule)
+                        
+                        # Make the move
+                        optimized_schedule.loc[activity, problem_month] = 0
+                        optimized_schedule.loc[activity, target_month] = effort
+                        
+                        # Get new dates after making the move
+                        new_start, new_end = self._get_activity_dates(activity, optimized_schedule)
+                        
+                        changes_made.append({
+                            'activity': activity,
+                            'from_month': problem_month,
+                            'to_month': target_month,
+                            'effort': effort,
+                            'reason': f'Resolved {theme} shortage in {self.month_names[problem_month-1]}',
+                            'original_start_month': orig_start,
+                            'original_end_month': orig_end,
+                            'new_start_month': new_start,
+                            'new_end_month': new_end,
+                            'frequency': frequency
+                        })
+                        break
         
         return optimized_schedule, changes_made
     
@@ -260,6 +290,96 @@ class EnhancedBAUOptimizer:
         
         return best_target
     
+    def _move_activity_set(self, activity: str, schedule: pd.DataFrame, 
+                          flexibility: int, theme: str) -> bool:
+        """
+        Move an entire activity set while preserving fixed intervals.
+        
+        Args:
+            activity: Activity name
+            schedule: Schedule DataFrame to modify
+            flexibility: Number of months the activity can be moved
+            theme: Resource theme for gap calculation
+            
+        Returns:
+            True if move was successful, False otherwise
+        """
+        activity_config = self.activities[activity]
+        frequency = activity_config['frequency']
+        effort = activity_config['effort_per_cycle']
+        interval = 12 // frequency
+        
+        # Find current activity months
+        current_months = [month for month in range(1, 13) if schedule.loc[activity, month] > 0]
+        if not current_months:
+            return False
+        
+        current_start = min(current_months)
+        
+        # Try different start months within flexibility window
+        best_start = None
+        best_improvement = -float('inf')
+        
+        for offset in range(-flexibility, flexibility + 1):
+            new_start = current_start + offset
+            if new_start < 1 or new_start > 12:
+                continue
+            
+            # Calculate new occurrence months
+            new_months = []
+            month = new_start
+            for _ in range(frequency):
+                if month <= 12:
+                    new_months.append(month)
+                    month += interval
+            
+            # Skip if any occurrence falls outside the year
+            if len(new_months) != frequency:
+                continue
+            
+            # Check if all target months have sufficient capacity
+            gaps = self.calculate_resource_gaps(schedule)
+            can_move = True
+            total_improvement = 0
+            
+            for new_month in new_months:
+                available_gap = gaps.loc[theme, new_month]
+                if new_month not in current_months and available_gap < effort:
+                    can_move = False
+                    break
+                # Calculate improvement (reduction in absolute gaps)
+                if new_month in current_months:
+                    total_improvement += 0  # No change for this month
+                else:
+                    total_improvement += available_gap - effort
+            
+            # Add improvement from clearing current months
+            for curr_month in current_months:
+                if curr_month not in new_months:
+                    curr_gap = gaps.loc[theme, curr_month]
+                    total_improvement += abs(curr_gap) - abs(curr_gap + effort)
+            
+            if can_move and total_improvement > best_improvement:
+                best_improvement = total_improvement
+                best_start = new_start
+        
+        # Apply the best move if found
+        if best_start is not None:
+            # Clear current schedule for this activity
+            for month in range(1, 13):
+                schedule.loc[activity, month] = 0
+            
+            # Set new schedule
+            month = best_start
+            for _ in range(frequency):
+                if month <= 12:
+                    schedule.loc[activity, month] = effort
+                    month += interval
+            
+            return True
+        
+        return False
+    
     def _get_activity_dates(self, activity: str, schedule: pd.DataFrame) -> Tuple[Optional[int], Optional[int]]:
         """
         Get start and end months for an activity in a schedule.
@@ -278,3 +398,32 @@ class EnhancedBAUOptimizer:
             return None, None
         
         return min(active_months), max(active_months)
+    
+    def validate_schedule_intervals(self, schedule: pd.DataFrame) -> bool:
+        """
+        Validate that all activities with frequency > 1 maintain their required intervals.
+        
+        Args:
+            schedule: Schedule DataFrame to validate
+            
+        Returns:
+            True if all intervals are valid, False otherwise
+        """
+        for activity, config in self.activities.items():
+            frequency = config['frequency']
+            if frequency <= 1:
+                continue
+            
+            expected_interval = 12 // frequency
+            activity_months = [month for month in range(1, 13) if schedule.loc[activity, month] > 0]
+            
+            if len(activity_months) != frequency:
+                return False
+            
+            # Check intervals between consecutive occurrences
+            for i in range(1, len(activity_months)):
+                actual_interval = activity_months[i] - activity_months[i-1]
+                if actual_interval != expected_interval:
+                    return False
+        
+        return True
