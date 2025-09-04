@@ -5,7 +5,7 @@ Utility functions and helpers for BAU optimization.
 
 import json
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, Iterable
 from pathlib import Path
 
 
@@ -45,21 +45,76 @@ class ReportGenerator:
         
         current_gaps = self.optimizer.calculate_resource_gaps(current_schedule)
         optimized_gaps = self.optimizer.calculate_resource_gaps(optimized_schedule)
+
+        # Consider only themes used by activities when possible
+        try:
+            used_themes = {cfg.get('theme') for cfg in self.optimizer.activities.values()}
+        except Exception:
+            used_themes = set()
+        def select_used_themes(gaps_obj):
+            try:
+                if hasattr(gaps_obj, 'loc') and hasattr(gaps_obj, 'index') and used_themes:
+                    present = [t for t in used_themes if t in gaps_obj.index]
+                    return gaps_obj.loc[present] if present else gaps_obj
+            except Exception:
+                pass
+            return gaps_obj
+
+        current_gaps_sel = select_used_themes(current_gaps)
+        optimized_gaps_sel = select_used_themes(optimized_gaps)
+
+        def total_abs(values_obj) -> float:
+            # Support pandas/numpy objects, plain lists, and mocks exposing `.values`
+            try:
+                values = getattr(values_obj, 'values', values_obj)
+                if hasattr(values, 'tolist'):
+                    values = values.tolist()
+            except Exception:
+                values = values_obj
+
+            def flatten(x: Iterable):
+                for el in x:
+                    if isinstance(el, (list, tuple)):
+                        for sub in flatten(el):
+                            yield sub
+                    else:
+                        yield el
+
+            total = 0.0
+            for v in flatten(values if isinstance(values, (list, tuple)) else [values]):
+                try:
+                    total += abs(float(v))
+                except Exception:
+                    # Skip non-numeric entries
+                    continue
+            return float(total)
         
         # Calculate metrics
-        current_total_gap = abs(current_gaps.values).sum()
-        optimized_total_gap = abs(optimized_gaps.values).sum()
+        current_total_gap = total_abs(current_gaps_sel)
+        optimized_total_gap = total_abs(optimized_gaps_sel)
         improvement_pct = ((current_total_gap - optimized_total_gap) / 
                           current_total_gap) * 100 if current_total_gap > 0 else 0
         
+        # Count total scheduled occurrences in current schedule
+        try:
+            total_activities = len(self.optimizer.activities)
+        except Exception:
+            total_activities = 0
+
+        try:
+            ra = self.optimizer.resource_availability
+            resource_themes = list(ra.keys()) if isinstance(ra, dict) else []
+        except Exception:
+            resource_themes = []
+
         return {
             'current_gaps_total': float(current_total_gap),
             'optimized_gaps_total': float(optimized_total_gap),
             'improvement_percent': float(improvement_pct),
             'changes_made': len(changes),
             'changes_detail': changes,
-            'resource_themes': list(self.optimizer.resource_availability.keys()),
-            'total_activities': len(self.optimizer.activities)
+            'resource_themes': resource_themes,
+            'total_activities': total_activities
         }
     
     def export_schedules_to_excel(self, file_path: str) -> None:
